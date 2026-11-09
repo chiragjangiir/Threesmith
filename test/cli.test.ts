@@ -31,6 +31,22 @@ describe.skipIf(!existsSync("dist/cli.js"))("built cli", () => {
     expect(pos).toMatch(/^Threesmith doctor: \d+ error/);
     expect(spawnSync("node", ["dist/cli.js", "doctor", "--path", "examples/agent-mistakes", "--no-env"]).stdout.toString()).toBe(pos);
     expect(spawnSync("node", ["dist/cli.js", "undo", dir, "--list"]).stdout.toString()).toContain("No Threesmith writes");
+
+    const badLimit = spawnSync("node", ["dist/cli.js", "search", "Vector3", "--three", THREE_DIR, "--limit", "abc"]);
+    expect(badLimit.status).toBe(2);
+    expect(badLimit.stderr.toString()).toContain('threesmith: --limit must be a whole number of 1 or more (got "abc")');
+
+    const zeroLimit = spawnSync("node", ["dist/cli.js", "search", "Vector3", "--three", THREE_DIR, "--limit", "0"]);
+    expect(zeroLimit.status).toBe(2);
+    expect(zeroLimit.stderr.toString()).toContain('threesmith: --limit must be a whole number of 1 or more (got "0")');
+
+    const negLimit = spawnSync("node", ["dist/cli.js", "search", "Vector3", "--three", THREE_DIR, "--limit", "-3"]);
+    expect(negLimit.status).toBe(2);
+    expect(negLimit.stderr.toString()).toContain('threesmith: --limit must be a whole number of 1 or more (got "-3")');
+
+    const goodLimit = spawnSync("node", ["dist/cli.js", "search", "Vector3", "--three", THREE_DIR, "--limit", "1"]);
+    expect(goodLimit.status).toBe(0);
+    expect(goodLimit.stdout.toString()).toContain("Vector3");
   });
 });
 void join;
