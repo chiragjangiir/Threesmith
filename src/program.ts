@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path";
 import { Command } from "commander";
 import { toAscii, useAscii } from "./ascii.js";
-import { formatSearch, lookup, search } from "./api/lookup.js";
+import { formatSearch, levenshtein, lookup, search } from "./api/lookup.js";
 import { check, formatCheck, parseSteps } from "./check/check.js";
 import { ci } from "./ci.js";
 import { indexFor } from "./core.js";
@@ -78,6 +78,34 @@ function positiveInt(name: string, value: string): number {
   return n;
 }
 
+function suggestRule(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  let best: { id: string; d: number } | undefined;
+  for (const r of RULES) {
+    const rLower = r.id.toLowerCase();
+    const d = levenshtein(lower, rLower, 4);
+    if (d <= 3 || rLower.includes(lower)) {
+      const score = d <= 3 ? d : 4;
+      if (!best || score < best.d || (score === best.d && r.id.length < best.id.length)) {
+        best = { id: r.id, d: score };
+      }
+    }
+  }
+  return best?.id;
+}
+
+function parseRuleList(raw: string, flag: string): string[] {
+  const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const known = new Set(RULES.map((r) => r.id));
+  for (const id of ids) {
+    if (!known.has(id)) {
+      const hint = suggestRule(id);
+      throw new Error(`unknown rule "${id}" in ${flag}${hint ? ` (did you mean ${hint}?)` : ""}`);
+    }
+  }
+  return ids;
+}
+
 export function buildProgram(): Command {
   const program = new Command("threesmith")
     .description("Makes coding agents better at three.js: version-pinned API lookup, scored review, headless check.")
@@ -130,7 +158,8 @@ export function buildProgram(): Command {
     .option("--disable <rules>", "comma separated rule ids to skip")
     .action(
       (path: string, o: { three?: string; json?: boolean; markdown?: boolean; sarif?: string; compact?: boolean; limit: string; minScore?: string; failOn: string; disable?: string }) => {
-        const { review: r, learned } = applyFeedback(review({ path, ...(o.three ? { three: o.three } : {}), ...(o.disable ? { disable: o.disable.split(",") } : {}) }));
+        const disable = o.disable ? parseRuleList(o.disable, "--disable") : undefined;
+        const { review: r, learned } = applyFeedback(review({ path, ...(o.three ? { three: o.three } : {}), ...(disable ? { disable } : {}) }));
         const note = formatLearned(learned);
         if (note && !o.json) process.stderr.write(note + "\n");
         if (o.sarif) {
@@ -154,7 +183,8 @@ export function buildProgram(): Command {
     .option("--rewrites", "also apply the rewrites that change more than a name (listed by the dry run)")
     .option("--json", "JSON output")
     .action((path: string, o: { three?: string; write?: boolean; only?: string; rewrites?: boolean; json?: boolean }) => {
-      const r = fix({ path, ...(o.three ? { three: o.three } : {}), ...(o.only ? { only: o.only.split(",") } : {}), ...(o.rewrites ? { rewrites: true } : {}) });
+      const only = o.only ? parseRuleList(o.only, "--only") : undefined;
+      const r = fix({ path, ...(o.three ? { three: o.three } : {}), ...(only ? { only } : {}), ...(o.rewrites ? { rewrites: true } : {}) });
       let id = 0;
       if (o.write && r.total) {
         const folder = statSync(path).isDirectory() ? path : join(path, "..");
@@ -503,13 +533,14 @@ export function buildProgram(): Command {
     .option("--out <file>", "write the markdown receipt to this file")
     .option("--json", "JSON output")
     .action(async (path: string, o: { three?: string; minScore?: string; failOn: string; check?: string; entry: string; root?: string; baseline?: string; updateBaseline?: boolean; wait: string; disable?: string; scenarios: boolean; junit?: string; sarif?: string; summary?: string; out?: string; json?: boolean }) => {
+      const disable = o.disable ? parseRuleList(o.disable, "--disable") : undefined;
       const r = await ci({
         path,
         scenarios: o.scenarios,
         failOn: o.failOn as Severity | "none",
         ...(o.three ? { three: o.three } : {}),
         ...(o.minScore !== undefined ? { minScore: Number(o.minScore) } : {}),
-        ...(o.disable ? { disable: o.disable.split(",") } : {}),
+        ...(disable ? { disable } : {}),
         ...(o.check
           ? { check: { target: o.check, entry: o.entry, ...(o.root ? { root: o.root } : {}), wait: Number(o.wait), ...(o.baseline ? { baseline: o.baseline } : {}), ...(o.updateBaseline ? { updateBaseline: true } : {}) } }
           : {}),
@@ -594,10 +625,18 @@ export function buildProgram(): Command {
     .option("--limit <n>", "max lessons", "10")
     .option("--json", "JSON output")
     .action((words: string[], o: { error?: string; rule?: string; topic?: string; id?: string; verdict?: string; limit: string; json?: boolean }) => {
+      const verdict = o.verdict;
+      if (verdict !== undefined) {
+        if (!o.id) throw new Error("--verdict needs --id");
+        if (verdict !== "helped" && verdict !== "wrong") throw new Error(`--verdict must be helped or wrong (got "${verdict}")`);
+      }
+      if (o.topic !== undefined && !(LESSON_TOPICS as readonly string[]).includes(o.topic)) {
+        throw new Error(`--topic must be one of ${LESSON_TOPICS.join(", ")} (got "${o.topic}")`);
+      }
       if (o.id) {
-        if (o.verdict === "helped" || o.verdict === "wrong") {
-          const c = recordLessonFeedback(o.id, o.verdict);
-          out(`recorded: ${o.id} ${o.verdict} (helped ${c.helped}, wrong ${c.wrong})`);
+        if (verdict === "helped" || verdict === "wrong") {
+          const c = recordLessonFeedback(o.id, verdict);
+          out(`recorded: ${o.id} ${verdict} (helped ${c.helped}, wrong ${c.wrong})`);
           return;
         }
         const hit = findLesson(o.id);
@@ -606,7 +645,7 @@ export function buildProgram(): Command {
         return;
       }
       const limit = Number(o.limit);
-      const topic = o.topic && (LESSON_TOPICS as readonly string[]).includes(o.topic) ? (o.topic as (typeof LESSON_TOPICS)[number]) : undefined;
+      const topic = o.topic as (typeof LESSON_TOPICS)[number] | undefined;
       const hits = o.error ? lessonsForError(o.error, { limit }) : o.rule ? lessonsForRule(o.rule, { limit }) : searchLessons(words.join(" "), { ...(topic ? { topic } : {}), limit });
       out(o.json ? JSON.stringify(hits, null, 2) : formatLessonList(hits, o.error ?? o.rule ?? words.join(" ")));
       if (!hits.length) process.exitCode = 1;

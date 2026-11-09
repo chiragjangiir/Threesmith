@@ -26,6 +26,19 @@ describe.skipIf(!existsSync("dist/cli.js"))("built cli", () => {
     expect(r.stdout.toString()).toContain("geometry-class");
     const miss = spawnSync("node", ["dist/cli.js", "api", "Nope", "--three", THREE_DIR]);
     expect(miss.status).toBe(1);
+
+    const badDisable = spawnSync("node", ["dist/cli.js", "review", dir, "--three", THREE_DIR, "--disable", "output-encodin"]);
+    expect(badDisable.status).toBe(2);
+    expect(badDisable.stderr.toString()).toContain('unknown rule "output-encodin" in --disable (did you mean output-encoding?)');
+
+    const badFix = spawnSync("node", ["dist/cli.js", "fix", dir, "--only", "output-encodin"]);
+    expect(badFix.status).toBe(2);
+    expect(badFix.stderr.toString()).toContain('unknown rule "output-encodin" in --only (did you mean output-encoding?)');
+
+    const disabled = spawnSync("node", ["dist/cli.js", "review", dir, "--three", THREE_DIR, "--disable", "geometry-class"]);
+    expect(disabled.status).toBe(0);
+    expect(disabled.stdout.toString()).not.toContain("geometry-class");
+
     // doctor and undo take the folder as an argument too, like review and scan
     const pos = spawnSync("node", ["dist/cli.js", "doctor", "examples/agent-mistakes", "--no-env"]).stdout.toString();
     expect(pos).toMatch(/^Threesmith doctor: \d+ error/);
@@ -47,6 +60,30 @@ describe.skipIf(!existsSync("dist/cli.js"))("built cli", () => {
     const goodLimit = spawnSync("node", ["dist/cli.js", "search", "Vector3", "--three", THREE_DIR, "--limit", "1"]);
     expect(goodLimit.status).toBe(0);
     expect(goodLimit.stdout.toString()).toContain("Vector3");
+  });
+
+  it("rejects unknown lesson filters and keeps the valid ones working", () => {
+    const badTopic = spawnSync("node", ["dist/cli.js", "lessons", "--topic", "shadowz", "shadow"]);
+    expect(badTopic.status).toBe(2);
+    expect(badTopic.stderr.toString()).toContain("--topic must be one of rendering, color");
+    expect(badTopic.stderr.toString()).toContain('(got "shadowz")');
+
+    const badVerdict = spawnSync("node", ["dist/cli.js", "lessons", "--id", "shadows/acne-and-bias", "--verdict", "helpful"]);
+    expect(badVerdict.status).toBe(2);
+    expect(badVerdict.stderr.toString()).toContain('--verdict must be helped or wrong (got "helpful")');
+    expect(badVerdict.stdout.toString()).not.toContain("recorded:");
+
+    const noId = spawnSync("node", ["dist/cli.js", "lessons", "--verdict", "helped"]);
+    expect(noId.status).toBe(2);
+    expect(noId.stderr.toString()).toContain("--verdict needs --id");
+
+    const list = spawnSync("node", ["dist/cli.js", "lessons", "--topic", "shadows"]);
+    expect(list.status).toBe(0);
+    expect(list.stdout.toString()).toContain("shadows/");
+
+    const record = spawnSync("node", ["dist/cli.js", "lessons", "--id", "shadows/acne-and-bias", "--verdict", "helped"]);
+    expect(record.status).toBe(0);
+    expect(record.stdout.toString()).toContain("recorded: shadows/acne-and-bias helped");
   });
 });
 void join;
