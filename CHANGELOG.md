@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `model view` refuses an unknown `--only` view or non-positive `--width` with exit code 2 instead of quietly showing all views or printing NaN (#18).
 - `review --disable`, `ci --disable` and `fix --only` refuse an unknown rule id with exit code 2 and suggest the closest real one, instead of silently ignoring it (#17).
 - `threesmith lessons` refuses an unknown `--topic` or `--verdict`, and `--verdict` without `--id`, with a clear message and exit code 2 instead of quietly showing nothing (#12).
 

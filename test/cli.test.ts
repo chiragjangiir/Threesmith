@@ -69,5 +69,32 @@ describe.skipIf(!existsSync("dist/cli.js"))("built cli", () => {
     expect(record.status).toBe(0);
     expect(record.stdout.toString()).toContain("recorded: shadows/acne-and-bias helped");
   });
+
+  it("validates model view options and renders views", () => {
+    const robot = "examples/agent-mistakes/public/models/robot.glb";
+
+    const badOnly = spawnSync("node", ["dist/cli.js", "model", "view", robot, "--only", "back"]);
+    expect(badOnly.status).toBe(2);
+    expect(badOnly.stderr.toString()).toContain('--only must be front, side or top (got "back")');
+
+    const badWidthStr = spawnSync("node", ["dist/cli.js", "model", "view", robot, "--width", "abc"]);
+    expect(badWidthStr.status).toBe(2);
+    expect(badWidthStr.stderr.toString()).toContain('--width must be a whole number of 1 or more (got "abc")');
+
+    const badWidthZero = spawnSync("node", ["dist/cli.js", "model", "view", robot, "--width", "0"]);
+    expect(badWidthZero.status).toBe(2);
+    expect(badWidthZero.stderr.toString()).toContain('--width must be a whole number of 1 or more (got "0")');
+
+    const onlyTop = spawnSync("node", ["dist/cli.js", "model", "view", robot, "--only", "top"]);
+    expect(onlyTop.status).toBe(0);
+    const topOut = onlyTop.stdout.toString();
+    expect(topOut).toContain("TOP (from above");
+    expect(topOut).not.toContain("FRONT (from +z");
+    expect(topOut).not.toContain("SIDE (from the right");
+
+    const withWidth = spawnSync("node", ["dist/cli.js", "model", "view", robot, "--width", "40"]);
+    expect(withWidth.status).toBe(0);
+    expect(withWidth.stdout.toString()).not.toContain("NaN");
+  });
 });
 void join;
