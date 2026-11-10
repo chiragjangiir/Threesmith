@@ -70,6 +70,14 @@ function out(s: string): void {
   process.stdout.write(text.endsWith("\n") ? text : text + "\n");
 }
 
+function positiveInt(name: string, value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`${name} must be a whole number of 1 or more (got "${value}")`);
+  }
+  return n;
+}
+
 function suggestRule(name: string): string | undefined {
   const lower = name.toLowerCase();
   let best: { id: string; d: number } | undefined;
@@ -96,14 +104,6 @@ function parseRuleList(raw: string, flag: string): string[] {
     }
   }
   return ids;
-}
-
-function positiveInt(name: string, value: string): number {
-  const n = Number(value);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new Error(`${name} must be a whole number of 1 or more (got "${value}")`);
-  }
-  return n;
 }
 
 export function buildProgram(): Command {
@@ -136,8 +136,9 @@ export function buildProgram(): Command {
     .option("--limit <n>", "max results", "15")
     .option("--json", "JSON output")
     .action((query: string, o: { path: string; three?: string; members?: boolean; limit: string; json?: boolean }) => {
+      const limit = positiveInt("--limit", o.limit);
       const index = indexFor(o.path, o.three);
-      const hits = search(index, query, { ...(o.members ? { members: true } : {}), limit: Number(o.limit) });
+      const hits = search(index, query, { ...(o.members ? { members: true } : {}), limit });
       out(o.json ? JSON.stringify(hits) : formatSearch(index, hits));
       if (!hits.length) process.exitCode = 1;
     });
